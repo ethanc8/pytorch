@@ -32,9 +32,12 @@ inline namespace CPU_CAPABILITY {
 // Most likely we will do aarch32 support with inline asm.
 #if defined(__aarch64__)
 
+// See https://www.qengineering.eu/install-pytorch-on-jetson-nano.html
+#if defined(__clang__) ||(__GNUC__ > 8 || (__GNUC__ == 8 && __GNUC_MINOR__ > 3))
 #ifdef __BIG_ENDIAN__
 #error "Big endian is not supported."
 #endif
+#endif // defined(__clang__) ||(__GNUC__ > 8 || (__GNUC__ == 8 && __GNUC_MINOR__ > 3))
 
 #if defined(AT_BUILD_ARM_VEC256_WITH_SLEEF)
 #define USE_SLEEF(sleef_code, non_sleef_code) sleef_code

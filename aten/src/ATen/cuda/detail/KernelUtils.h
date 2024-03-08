@@ -18,8 +18,9 @@ namespace at { namespace cuda { namespace detail {
 #define CUDA_KERNEL_LOOP(i, n) CUDA_KERNEL_LOOP_TYPE(i, n, int)
 
 
-// Use 1024 threads per block, which requires cuda sm_2x or above
-constexpr int CUDA_NUM_THREADS = 1024;
+// Use 512 threads per batch
+// See https://www.qengineering.eu/install-pytorch-on-jetson-nano.html
+constexpr int CUDA_NUM_THREADS = 512;
 
 // CUDA: number of blocks for threads.
 inline int GET_BLOCKS(const int64_t N, const int64_t max_threads_per_block=CUDA_NUM_THREADS) {
