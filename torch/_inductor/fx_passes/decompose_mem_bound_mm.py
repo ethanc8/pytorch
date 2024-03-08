@@ -34,7 +34,6 @@ def should_decompose_common(
     return (
         torch._inductor.config.decompose_mem_bound_mm
         and check_device(mat1, mat2)
-        and not utils.any_is_symbolic(mat1, mat2, input)
     )
 
 
