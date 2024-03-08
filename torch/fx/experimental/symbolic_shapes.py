@@ -1883,7 +1883,9 @@ class ShapeEnv:
         self.var_to_stack: Dict[sympy.Symbol, CapturedTraceback] = {}
         # Maps from sympy ints to expressions representing them
         # Populated from equality guards (i.e. a.shape[0] == b.shape[0])
-        self.replacements: Dict[sympy.Symbol, sympy.Expr] = {}  #
+        self.replacements: Dict[sympy.Symbol, sympy.Expr] = {}
+        # Boolean expressions that evaluate to true
+        self.constant_truths: Set[sympy.Rel] = set()
         # Set holds a % b expressions that evaluate to 0.
         self.divisible: Set[sympy.Expr] = set()
         # Set that holds "size-like" symbols.  When we perform
@@ -2192,7 +2194,7 @@ class ShapeEnv:
         Defines the current "state" of the guards we've accumulated in this ShapeEnv.
         Determines when we need to invalidate our cache
         """
-        return (len(self.replacements), len(self.divisible), self.num_deferred_runtime_asserts)
+        return (len(self.replacements), len(self.divisible), self.num_deferred_runtime_asserts, len(self.constant_truths))
 
     def _update_version_counter(self):
         # The shape environment is queried orders of magnitude more often than
@@ -3444,19 +3446,36 @@ class ShapeEnv:
             if s in self.var_to_val:
                 continue
             subst = {}
-            for ra in self.deferred_runtime_asserts.get(s, ()):
+            for e in itertools.chain((ra.expr for ra in self.deferred_runtime_asserts.get(s, ())), self.constant_truths):
                 if compute_hint:
-                    e = canonicalize_bool_expr(ra.expr.xreplace(self.var_to_val))
-                else:
-                    e = ra.expr
+                    e = canonicalize_bool_expr(e.xreplace(self.var_to_val))
                 # e is already canonical
                 subst[e] = sympy.true
                 subst[canonicalize_bool_expr(sympy.Not(e))] = sympy.false
+                # Add tautologies in a canonical form
                 if isinstance(e, sympy.Eq):
                     subst[sympy.Le(e.lhs, e.rhs)] = sympy.true
                     subst[sympy.Le(-e.lhs, -e.rhs)] = sympy.true
                     subst[sympy.Lt(e.lhs, e.rhs)] = sympy.false
                     subst[sympy.Lt(-e.lhs, -e.rhs)] = sympy.false
+
+                    subst[sympy.Le(e.rhs, e.lhs)] = sympy.true
+                    subst[sympy.Le(-e.rhs, -e.lhs)] = sympy.true
+                    subst[sympy.Lt(e.rhs, e.lhs)] = sympy.false
+                    subst[sympy.Lt(-e.rhs, -e.lhs)] = sympy.false
+                elif isinstance(e, sympy.Lt):
+                    subst[sympy.Le(e.lhs, e.rhs)] = sympy.true
+                    subst[sympy.Lt(-e.rhs, -e.lhs)] = sympy.true
+                    subst[sympy.Ne(e.lhs, e.rhs)] = sympy.true
+
+                    subst[sympy.Lt(e.rhs, e.lhs)] = sympy.false
+                    subst[sympy.Le(e.rhs, e.lhs)] = sympy.false
+                    subst[sympy.Lt(-e.lhs, -e.rhs)] = sympy.false
+                    subst[sympy.Le(-e.lhs, -e.rhs)] = sympy.false
+                    subst[sympy.Eq(e.lhs, e.rhs)] = sympy.false
+                elif isinstance(e, sympy.Le):
+                    subst[sympy.Le(-e.rhs, -e.lhs)] = sympy.true
+                    subst[sympy.Lt(e.rhs, e.lhs)] = sympy.false
 
             # NB: this helps us deal with And/Or connectives
             expr = expr.subs(subst)
@@ -3788,6 +3807,9 @@ class ShapeEnv:
         simplify shapes (i.e. a == b or a % 5 == 0)
         """
         assert isinstance(expr, sympy.Rel)
+
+        self.constant_truths.add(canonicalize_bool_expr(expr))
+        self._update_version_counter()
 
         # A good example of what goes wrong if you don't do this is
         # python test/functorch/test_aotdispatch.py -k
